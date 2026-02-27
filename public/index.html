@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎙️ Podcast提取器 / Podcast Transcriber</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.2/marked.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'blue-gradient-start': '#4f46e5',
+                        'blue-gradient-end': '#06b6d4',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
+        }
+        .glass {
+            backdrop-filter: blur(16px);
+            background: rgba(255, 255, 255, 0.95);
+        }
+        .loading {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .loading-pulse {
+            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .loading-shine {
+            animation: shine 2s ease-in-out infinite;
+        }
+        
+        @keyframes shine {
+            0% { transform: translateX(-100%); }
+            50% { transform: translateX(100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
+        
+        /* 智能进度条平滑过渡 */
+        #progressFill {
+            transition: width 0.5s ease-out;
+        }
+        
+        /* 移除prose中的分割线和边框，紧凑段落间距 */
+        .prose hr {
+            display: none !important;
+        }
+        .prose * {
+            border: none !important;
+            border-top: none !important;
+            border-bottom: none !important;
+        }
+        .prose p {
+            margin-bottom: 0.3rem !important;
+        }
+        .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+            margin-top: 0.3rem !important;
+            margin-bottom: 0.3rem !important;
+            border: none !important;
+        }
+        .prose ul, .prose ol {
+            margin-bottom: 0.3rem !important;
+        }
+        .prose li {
+            margin-bottom: 0.15rem !important;
+        }
+        .prose blockquote {
+            margin-top: 0.3rem !important;
+            margin-bottom: 0.3rem !important;
+            border-left: 4px solid #e2e8f0 !important;
+            border-top: none !important;
+            border-bottom: none !important;
+            border-right: none !important;
+        }
+        
+        /* Summary区域：让标题看起来像段落，间距一致 */
+        #summaryText.prose h1, #summaryText.prose h2, #summaryText.prose h3, 
+        #summaryText.prose h4, #summaryText.prose h5, #summaryText.prose h6 {
+            font-size: inherit !important;
+            font-weight: inherit !important;
+            line-height: inherit !important;
+            margin-top: 0 !important;
+            margin-bottom: 0.3rem !important;
+        }
+        
+        /* Summary区域：与Transcript完全一致的强力重置 */
+        #summaryText.prose *,
+        #summaryText.prose *:before,
+        #summaryText.prose *:after {
+            margin-top: 0 !important;
+            margin-bottom: 0.3rem !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
+        
+        /* 特殊处理列表项，使用更小间距 */
+        #summaryText.prose li {
+            margin-bottom: 0.15rem !important;
+        }
+        
+        /* 确保分割线样式 */
+        #summaryText.prose hr {
+            margin: 0.3rem 0 !important;
+            height: 1px !important;
+            background-color: #e2e8f0 !important;
+            border: none !important;
+        }
+        
+        /* Tab 样式 */
+        .tab-button {
+            padding: 12px 24px;
+            border-bottom: 2px solid transparent;
+            font-weight: 500;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .tab-button:hover {
+            color: #334155;
+            border-bottom-color: #cbd5e1;
+        }
+        
+        .tab-button.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+        
+        .tab-content {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 重置所有可能的块级元素 */
+        #summaryText.prose p,
+        #summaryText.prose div,
+        #summaryText.prose h1,
+        #summaryText.prose h2,
+        #summaryText.prose h3,
+        #summaryText.prose h4,
+        #summaryText.prose h5,
+        #summaryText.prose h6,
+        #summaryText.prose ul,
+        #summaryText.prose ol,
+        #summaryText.prose blockquote,
+        #summaryText.prose pre,
+        #summaryText.prose table {
+            margin-top: 0 !important;
+            margin-bottom: 0.3rem !important;
+        }
+        
+        /* Transcript区域：强制统一所有元素间距 */
+        #transcriptText.prose *,
+        #transcriptText.prose *:before,
+        #transcriptText.prose *:after {
+            margin-top: 0 !important;
+            margin-bottom: 0.3rem !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
+        
+        /* 特殊处理列表项，使用更小间距 */
+        #transcriptText.prose li {
+            margin-bottom: 0.15rem !important;
+        }
+        
+        /* 确保分割线样式 */
+        #transcriptText.prose hr {
+            margin: 0.3rem 0 !important;
+            height: 1px !important;
+            background-color: #e2e8f0 !important;
+            border: none !important;
+        }
+        
+        /* 重置所有可能的块级元素 */
+        #transcriptText.prose p,
+        #transcriptText.prose div,
+        #transcriptText.prose h1,
+        #transcriptText.prose h2,
+        #transcriptText.prose h3,
+        #transcriptText.prose h4,
+        #transcriptText.prose h5,
+        #transcriptText.prose h6,
+        #transcriptText.prose ul,
+        #transcriptText.prose ol,
+        #transcriptText.prose blockquote,
+        #transcriptText.prose pre,
+        #transcriptText.prose table {
+            margin-top: 0 !important;
+            margin-bottom: 0.3rem !important;
+        }
+        
+        /* Translation区域：与Summary和Transcript完全一致的强力重置 */
+        #translationText.prose *,
+        #translationText.prose *:before,
+        #translationText.prose *:after {
+            margin-top: 0 !important;
+            margin-bottom: 0.3rem !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
+        
+        /* 特殊处理列表项，使用更小间距 */
+        #translationText.prose li {
+            margin-bottom: 0.15rem !important;
+        }
+        
+        /* 确保分割线样式 */
+        #translationText.prose hr {
+            margin: 0.3rem 0 !important;
+            height: 1px !important;
+            background-color: #e2e8f0 !important;
+            border: none !important;
+        }
+        
+        /* 重置所有可能的块级元素 */
+        #translationText.prose p,
+        #translationText.prose div,
+        #translationText.prose h1,
+        #translationText.prose h2,
+        #translationText.prose h3,
+        #translationText.prose h4,
+        #translationText.prose h5,
+        #translationText.prose h6,
+        #translationText.prose ul,
+        #translationText.prose ol,
+        #translationText.prose blockquote,
+        #translationText.prose pre,
+        #translationText.prose table {
+            margin-top: 0 !important;
+            margin-bottom: 0.3rem !important;
+        }
+
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen">
+    <!-- Language Toggle -->
+    <div class="absolute top-6 right-6 z-10">
+        <button 
+            id="languageToggle" 
+            class="glass rounded-full px-4 py-2 text-sm font-medium transition-all hover:shadow-lg border border-white/20"
+            onclick="toggleLanguage()"
+        >
+            <span id="langFlag">🇨🇳</span> 
+            <span id="langText">中文</span>
+        </button>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="mb-4">
+                <span class="text-6xl">🎙️</span>
+            </div>
+            <h1 class="text-4xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-4">
+                <span id="title">Podcast提取器</span>
+            </h1>
+            <p class="text-lg text-slate-600" id="subtitle">
+                只需提供Podcast音频链接，即可获得高质量的文字转录和AI智能总结
+            </p>
+        </div>
+
+        <!-- Main Form Card -->
+        <div class="glass rounded-2xl shadow-xl border border-white/20 p-8 mb-8">
+            <form id="podcastForm" onsubmit="processPodcast(event)">
+                <!-- URL Input -->
+                <div class="mb-6">
+                    <label class="flex items-center text-sm font-medium text-slate-700 mb-3">
+                        <span class="text-lg mr-2">🔗</span>
+                        <span id="urlLabel">Podcast音频链接</span>
+                    </label>
+                    <input 
+                        type="url" 
+                        id="podcastUrl" 
+                        placeholder="https://example.com/podcast/episode"
+                        class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-700"
+                        required
+                    >
+                    <p class="text-xs text-slate-500 mt-2" id="urlHelper">
+                        支持 Apple Podcasts、小宇宙、RSS订阅源和直接音频链接
+                    </p>
+                </div>
+
+                <!-- Operation Type -->
+                <div class="mb-6">
+                    <label class="text-sm font-medium text-slate-700 mb-3 block" id="operationLabel">
+                        操作类型
+                    </label>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label class="flex items-center p-4 border border-slate-200 rounded-xl cursor-pointer hover:bg-blue-50 transition-all">
+                            <input type="radio" name="operation" value="transcribe_summarize" checked class="mr-3 text-blue-600">
+                            <div>
+                                <div class="font-medium text-slate-800" id="option1Title">转录并总结</div>
+                                <div class="text-sm text-slate-600" id="option1Desc">获得转录文本和AI总结</div>
+                            </div>
+                        </label>
+                        <label class="flex items-center p-4 border border-slate-200 rounded-xl cursor-pointer hover:bg-blue-50 transition-all">
+                            <input type="radio" name="operation" value="transcribe_only" class="mr-3 text-blue-600">
+                            <div>
+                                <div class="font-medium text-slate-800" id="option2Title">仅转录</div>
+                                <div class="text-sm text-slate-600" id="option2Desc">只获得转录文本</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Language Settings -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <!-- Audio Language Detection -->
+                    <div>
+                        <label class="text-sm font-medium text-slate-700 mb-3 block" id="audioLangLabel">
+                            音频语言
+                        </label>
+                        <select id="audioLanguage" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-700">
+                            <option value="auto" id="autoDetect">自动检测</option>
+                            <option value="zh">中文</option>
+                            <option value="en">English</option>
+                            <option value="es">Español</option>
+                            <option value="fr">Français</option>
+                            <option value="de">Deutsch</option>
+                            <option value="it">Italiano</option>
+                            <option value="pt">Português</option>
+                            <option value="ru">Русский</option>
+                            <option value="ja">日本語</option>
+                            <option value="ko">한국어</option>
+                        </select>
+                    </div>
+
+                    <!-- Output Language -->
+                    <div>
+                        <label class="text-sm font-medium text-slate-700 mb-3 block" id="outputLangLabel">
+                            总结语言
+                        </label>
+                        <select id="outputLanguage" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-700">
+                            <option value="zh" id="chineseOption">中文</option>
+                            <option value="en" id="englishOption">English</option>
+                            <option value="es" id="spanishOption">Español</option>
+                            <option value="fr" id="frenchOption">Français</option>
+                            <option value="de" id="germanOption">Deutsch</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <button 
+                    type="submit" 
+                    id="submitBtn"
+                    class="w-full gradient-bg text-white font-medium py-4 rounded-xl hover:shadow-lg transition-all duration-300 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <span id="submitText">🚀 开始处理</span>
+                </button>
+            </form>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="hidden">
+            <div class="glass rounded-2xl shadow-xl border border-white/20 p-8">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent flex items-center">
+                        <span id="resultsTitle">处理结果</span>
+                    </h2>
+                    <!-- Download Section -->
+                    <div id="downloadSection" class="hidden">
+                        <div class="flex flex-wrap gap-3" id="downloadButtons">
+                            <!-- Download buttons will be added here by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Loading State -->
+                <div id="loadingState" class="text-center py-12">
+                    <div class="loading text-6xl mb-4">🎧</div>
+                    <p class="text-lg text-slate-600 mb-2" id="loadingText">正在处理您的播客...</p>
+                    
+                    <!-- 智能进度显示系统 -->
+                    <div class="progress-section max-w-md mx-auto mt-6" id="progressSection">
+                        <!-- 进度头部 -->
+                        <div class="progress-header flex justify-between items-center mb-3">
+                            <h3 class="text-sm font-medium text-slate-700" id="progressTitle">Processing Progress</h3>
+                            <span class="progress-status text-sm font-semibold text-blue-600" id="progressStatus">0%</span>
+                        </div>
+                        
+                        <!-- 进度条 -->
+                        <div class="progress-bar bg-slate-200 rounded-full h-4 relative overflow-hidden shadow-inner">
+                            <div 
+                                id="progressFill"
+                                class="bg-gradient-to-r from-blue-500 to-cyan-500 h-4 rounded-full transition-all duration-500 ease-out shadow-sm"
+                                style="width: 0%"
+                                role="progressbar"
+                                aria-valuenow="0"
+                                aria-valuemin="0"
+                                aria-valuemax="100"
+                            ></div>
+                            <!-- 进度条光效 -->
+                            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-20 loading-shine"></div>
+                        </div>
+                        
+                        <!-- 进度消息 -->
+                        <div class="progress-message mt-3 text-center">
+                            <span id="progressMessage" class="text-sm text-slate-600">Preparing...</span>
+                        </div>
+                    </div>
+                    
+                    <!-- 温馨提示 -->
+                    <div class="mt-6 max-w-lg mx-auto">
+                        <div class="bg-blue-50 border-l-4 border-blue-400 p-4 text-sm text-left">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <span class="text-lg">💡</span>
+                                </div>
+                                <div class="ml-3">
+                                    <p class="text-blue-800">
+                                        <strong id="processingTipsText">处理中，请耐心等待：</strong><br/>
+                                        • <span id="tipLargeFileText">大文件需要更长时间处理</span><br/>
+                                        • <span id="tipKeepOpenText">页面请保持打开状态</span><br/>
+                                        • <span id="tipAutoShowText">处理完成后会自动显示结果</span>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Content -->
+                <div id="resultsContent" class="hidden">
+                    <!-- Podcast Title Display -->
+                    <div id="podcastTitleSection" class="hidden mb-6">
+                        <h2 id="podcastTitleText" class="text-2xl font-bold text-slate-800 break-words leading-tight">
+                            <!-- Podcast title will be displayed here -->
+                        </h2>
+                    </div>
+
+                    <!-- Tab Navigation -->
+                    <div class="border-b border-slate-200 mb-6">
+                        <nav class="flex space-x-8" id="tabNavigation">
+                            <!-- Tabs will be dynamically added by JavaScript -->
+                        </nav>
+                    </div>
+
+                    <!-- Tab Content -->
+                    <div id="tabContent" class="min-h-96">
+                        <!-- Summary Tab Content -->
+                        <div id="summaryTabContent" class="tab-content hidden">
+                            <div class="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl p-6 border border-blue-200">
+                                <div id="summaryText" class="prose prose-slate max-w-none text-base leading-relaxed whitespace-pre-line"></div>
+                            </div>
+                        </div>
+
+                        <!-- Transcript Tab Content -->
+                        <div id="transcriptTabContent" class="tab-content hidden">
+                            <div class="bg-slate-50 rounded-xl p-6 border border-slate-200">
+                                <div id="transcriptText" class="prose prose-slate max-w-none text-base leading-relaxed whitespace-pre-line"></div>
+                            </div>
+                        </div>
+
+                        <!-- Translation Tab Content -->
+                        <div id="translationTabContent" class="tab-content hidden">
+                            <div class="bg-gradient-to-r from-green-50 to-teal-50 rounded-xl p-6 border border-green-200">
+                                <div id="translationText" class="prose prose-slate max-w-none text-base leading-relaxed whitespace-pre-line"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error State -->
+                <div id="errorState" class="hidden text-center py-12">
+                    <div class="text-6xl mb-4">❌</div>
+                    <p class="text-lg text-red-600" id="errorText">处理过程中出现错误</p>
+                    <p class="text-sm text-slate-600 mt-2" id="errorDetails"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js?v=3.0"></script>
+</body>
+</html>
